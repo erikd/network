@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP, ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 -- |
@@ -197,7 +198,7 @@ import Foreign.Marshal.Alloc ( alloca, allocaBytes )
 import Foreign.Marshal.Array ( peekArray )
 import Foreign.Marshal.Utils ( maybeWith, with )
 
-import System.IO
+import System.IO hiding (IO)
 import Control.Monad (liftM, when)
 
 import Control.Concurrent.MVar
@@ -220,13 +221,17 @@ import Data.List (delete)
 import qualified GHC.IO.Device
 import GHC.IO.Handle.FD
 import GHC.IO.Exception
-import GHC.IO
+import GHC.IO hiding (IO)
 import qualified System.Posix.Internals
 
 import Network.Socket.Internal
 import Network.Socket.Types
 
-import Prelude -- Silence AMP warnings
+import GHC.Stack
+import qualified Prelude
+import Prelude hiding (IO)
+
+type IO a = HasCallStack => Prelude.IO a
 
 -- | Either a host name e.g., @\"haskell.org\"@ or a numeric host
 -- address string consisting of a dotted decimal IPv4 address or an
@@ -391,7 +396,7 @@ socketPair family stype protocol = do
        return (MkSocket fd family stype protocol stat)
 
 foreign import ccall unsafe "socketpair"
-  c_socketpair :: CInt -> CInt -> CInt -> Ptr CInt -> IO CInt
+  c_socketpair :: CInt -> CInt -> CInt -> Ptr CInt -> Prelude.IO CInt
 #endif
 
 -- | Set the socket to nonblocking, if applicable to this platform.
@@ -551,7 +556,7 @@ accept sock@(MkSocket s family stype protocol status) = do
 
 #if defined(mingw32_HOST_OS)
 foreign import ccall unsafe "HsNet.h acceptNewSock"
-  c_acceptNewSock :: Ptr () -> IO CInt
+  c_acceptNewSock :: Ptr () -> Prelude.IO CInt
 foreign import ccall unsafe "HsNet.h newAcceptParams"
   c_newAcceptParams :: CInt -> CInt -> Ptr a -> IO (Ptr ())
 foreign import ccall unsafe "HsNet.h &acceptDoProc"
@@ -746,7 +751,7 @@ recvBuf sock@(MkSocket s _family _stype _protocol _status) ptr nbytes
                 readRawBufferPtr "Network.Socket.recvBuf"
                 (socket2FD sock) ptr 0 (fromIntegral nbytes)
 #else
-               throwSocketErrorWaitRead sock "Network.Socket.recvBuf" $
+               throwSocketErrorWaitRead sock ("Network.Socket.recvBuf\n" ++ prettyCallStack callStack) $
                    c_recv s (castPtr ptr) (fromIntegral nbytes) 0{-flags-}
 #endif
         let len' = fromIntegral len
@@ -1034,14 +1039,14 @@ sendFd sock outfd = do
 -- | Receive a file descriptor over a domain socket. Note that the resulting
 -- file descriptor may have to be put into non-blocking mode in order to be
 -- used safely. See 'setNonBlockIfNeeded'.
-recvFd :: Socket -> IO CInt
+recvFd :: Socket -> Prelude.IO CInt
 recvFd sock = do
   theFd <- throwSocketErrorWaitRead sock "Network.Socket.recvFd" $
                c_recvFd (fdSocket sock)
   return theFd
 
-foreign import ccall SAFE_ON_WIN "sendFd" c_sendFd :: CInt -> CInt -> IO CInt
-foreign import ccall SAFE_ON_WIN "recvFd" c_recvFd :: CInt -> IO CInt
+foreign import ccall SAFE_ON_WIN "sendFd" c_sendFd :: CInt -> CInt -> Prelude.IO CInt
+foreign import ccall SAFE_ON_WIN "recvFd" c_recvFd :: CInt -> Prelude.IO CInt
 
 #endif
 
@@ -1490,10 +1495,10 @@ followAddrInfo ptr_ai | ptr_ai == nullPtr = return []
 
 foreign import ccall safe "hsnet_getaddrinfo"
     c_getaddrinfo :: CString -> CString -> Ptr AddrInfo -> Ptr (Ptr AddrInfo)
-                  -> IO CInt
+                  -> Prelude.IO CInt
 
 foreign import ccall safe "hsnet_freeaddrinfo"
-    c_freeaddrinfo :: Ptr AddrInfo -> IO ()
+    c_freeaddrinfo :: Ptr AddrInfo -> Prelude.IO ()
 
 gai_strerror :: CInt -> IO String
 
@@ -1501,7 +1506,7 @@ gai_strerror :: CInt -> IO String
 gai_strerror n = c_gai_strerror n >>= peekCString
 
 foreign import ccall safe "gai_strerror"
-    c_gai_strerror :: CInt -> IO CString
+    c_gai_strerror :: CInt -> Prelude.IO CString
 #else
 gai_strerror n = ioError $ userError $ "Network.Socket.gai_strerror not supported: " ++ show n
 #endif
@@ -1551,7 +1556,7 @@ getNameInfo flags doHost doService addr = withSocketsDo $
 
 foreign import ccall safe "hsnet_getnameinfo"
     c_getnameinfo :: Ptr SockAddr -> CInt{-CSockLen???-} -> CString -> CSize -> CString
-                  -> CSize -> CInt -> IO CInt
+                  -> CSize -> CInt -> Prelude.IO CInt
 #endif
 
 mkInvalidRecvArgError :: String -> IOError
@@ -1566,69 +1571,69 @@ mkEOFError loc = ioeSetErrorString (mkIOError EOF loc Nothing Nothing) "end of f
 -- foreign imports from the C library
 
 foreign import ccall unsafe "hsnet_inet_ntoa"
-  c_inet_ntoa :: HostAddress -> IO (Ptr CChar)
+  c_inet_ntoa :: HostAddress -> Prelude.IO (Ptr CChar)
 
 foreign import CALLCONV unsafe "inet_addr"
-  c_inet_addr :: Ptr CChar -> IO HostAddress
+  c_inet_addr :: Ptr CChar -> Prelude.IO HostAddress
 
 foreign import CALLCONV unsafe "shutdown"
-  c_shutdown :: CInt -> CInt -> IO CInt
+  c_shutdown :: CInt -> CInt -> Prelude.IO CInt
 
 closeFd :: CInt -> IO ()
 closeFd fd = throwSocketErrorIfMinus1_ "Network.Socket.close" $ c_close fd
 
 #if !defined(WITH_WINSOCK)
 foreign import ccall unsafe "close"
-  c_close :: CInt -> IO CInt
+  c_close :: CInt -> Prelude.IO CInt
 #else
 foreign import stdcall unsafe "closesocket"
-  c_close :: CInt -> IO CInt
+  c_close :: CInt -> Prelude.IO CInt
 #endif
 
 foreign import CALLCONV unsafe "socket"
-  c_socket :: CInt -> CInt -> CInt -> IO CInt
+  c_socket :: CInt -> CInt -> CInt -> Prelude.IO CInt
 foreign import CALLCONV unsafe "bind"
-  c_bind :: CInt -> Ptr SockAddr -> CInt{-CSockLen???-} -> IO CInt
+  c_bind :: CInt -> Ptr SockAddr -> CInt{-CSockLen???-} -> Prelude.IO CInt
 foreign import CALLCONV SAFE_ON_WIN "connect"
-  c_connect :: CInt -> Ptr SockAddr -> CInt{-CSockLen???-} -> IO CInt
+  c_connect :: CInt -> Ptr SockAddr -> CInt{-CSockLen???-} -> Prelude.IO CInt
 #ifdef HAVE_ACCEPT4
 foreign import CALLCONV unsafe "accept4"
-  c_accept4 :: CInt -> Ptr SockAddr -> Ptr CInt{-CSockLen???-} -> CInt -> IO CInt
+  c_accept4 :: CInt -> Ptr SockAddr -> Ptr CInt{-CSockLen???-} -> CInt -> Prelude.IO CInt
 #else
 foreign import CALLCONV unsafe "accept"
-  c_accept :: CInt -> Ptr SockAddr -> Ptr CInt{-CSockLen???-} -> IO CInt
+  c_accept :: CInt -> Ptr SockAddr -> Ptr CInt{-CSockLen???-} -> Prelude.IO CInt
 #endif
 foreign import CALLCONV unsafe "listen"
-  c_listen :: CInt -> CInt -> IO CInt
+  c_listen :: CInt -> CInt -> Prelude.IO CInt
 
 #if defined(mingw32_HOST_OS)
 foreign import CALLCONV safe "accept"
-  c_accept_safe :: CInt -> Ptr SockAddr -> Ptr CInt{-CSockLen???-} -> IO CInt
+  c_accept_safe :: CInt -> Ptr SockAddr -> Ptr CInt{-CSockLen???-} -> Prelude.IO CInt
 
 foreign import ccall unsafe "rtsSupportsBoundThreads" threaded :: Bool
 #endif
 
 foreign import CALLCONV unsafe "send"
-  c_send :: CInt -> Ptr a -> CSize -> CInt -> IO CInt
+  c_send :: CInt -> Ptr a -> CSize -> CInt -> Prelude.IO CInt
 foreign import CALLCONV SAFE_ON_WIN "sendto"
-  c_sendto :: CInt -> Ptr a -> CSize -> CInt -> Ptr SockAddr -> CInt -> IO CInt
+  c_sendto :: CInt -> Ptr a -> CSize -> CInt -> Ptr SockAddr -> CInt -> Prelude.IO CInt
 foreign import CALLCONV unsafe "recv"
-  c_recv :: CInt -> Ptr CChar -> CSize -> CInt -> IO CInt
+  c_recv :: CInt -> Ptr CChar -> CSize -> CInt -> Prelude.IO CInt
 foreign import CALLCONV SAFE_ON_WIN "recvfrom"
-  c_recvfrom :: CInt -> Ptr a -> CSize -> CInt -> Ptr SockAddr -> Ptr CInt -> IO CInt
+  c_recvfrom :: CInt -> Ptr a -> CSize -> CInt -> Ptr SockAddr -> Ptr CInt -> Prelude.IO CInt
 foreign import CALLCONV unsafe "getpeername"
-  c_getpeername :: CInt -> Ptr SockAddr -> Ptr CInt -> IO CInt
+  c_getpeername :: CInt -> Ptr SockAddr -> Ptr CInt -> Prelude.IO CInt
 foreign import CALLCONV unsafe "getsockname"
-  c_getsockname :: CInt -> Ptr SockAddr -> Ptr CInt -> IO CInt
+  c_getsockname :: CInt -> Ptr SockAddr -> Ptr CInt -> Prelude.IO CInt
 
 foreign import CALLCONV unsafe "getsockopt"
-  c_getsockopt :: CInt -> CInt -> CInt -> Ptr CInt -> Ptr CInt -> IO CInt
+  c_getsockopt :: CInt -> CInt -> CInt -> Ptr CInt -> Ptr CInt -> Prelude.IO CInt
 foreign import CALLCONV unsafe "setsockopt"
-  c_setsockopt :: CInt -> CInt -> CInt -> Ptr CInt -> CInt -> IO CInt
+  c_setsockopt :: CInt -> CInt -> CInt -> Ptr CInt -> CInt -> Prelude.IO CInt
 
 #if defined(HAVE_GETPEEREID)
 foreign import CALLCONV unsafe "getpeereid"
-  c_getpeereid :: CInt -> Ptr CUInt -> Ptr CUInt -> IO CInt
+  c_getpeereid :: CInt -> Ptr CUInt -> Ptr CUInt -> Prelude.IO CInt
 #endif
 -- ---------------------------------------------------------------------------
 -- * Deprecated aliases

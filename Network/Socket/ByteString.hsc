@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP, ForeignFunctionInterface #-}
+{-# LANGUAGE RankNTypes #-}
 
 #include "HsNet.h"
 
@@ -69,6 +70,8 @@ import Foreign.Storable (Storable(..))
 import Network.Socket.ByteString.IOVec (IOVec(..))
 import Network.Socket.ByteString.MsgHdr (MsgHdr(..))
 #endif
+
+import GHC.Stack
 
 -- ----------------------------------------------------------------------------
 -- Sending
@@ -220,7 +223,8 @@ sendManyTo sock cs = sendAllTo sock (B.concat cs)
 -- closed its half side of the connection.
 --
 -- Receiving data from closed socket may lead to undefined behaviour.
-recv :: Socket         -- ^ Connected socket
+recv :: HasCallStack
+     => Socket         -- ^ Connected socket
      -> Int            -- ^ Maximum number of bytes to receive
      -> IO ByteString  -- ^ Data received
 recv sock nbytes
@@ -236,7 +240,8 @@ recv sock nbytes
 -- 'SockAddr' representing the address of the sending socket.
 --
 -- Receiving data from closed socket may lead to undefined behaviour.
-recvFrom :: Socket                     -- ^ Socket
+recvFrom :: HasCallStack
+         => Socket                     -- ^ Socket
          -> Int                        -- ^ Maximum number of bytes to receive
          -> IO (ByteString, SockAddr)  -- ^ Data received and sender address
 recvFrom sock nbytes =

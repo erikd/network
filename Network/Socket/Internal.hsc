@@ -94,11 +94,14 @@ import System.IO.Error ( ioeSetErrorString, mkIOError )
 
 import Network.Socket.Types
 
+import GHC.Stack
+
 -- ---------------------------------------------------------------------
 -- Guards for socket operations that may fail
 
 -- | Throw an 'IOError' corresponding to the current socket error.
-throwSocketError :: String  -- ^ textual description of the error location
+throwSocketError :: HasCallStack
+                 => String  -- ^ textual description of the error location
                  -> IO a
 
 -- | Like 'throwSocketError', but the error code is supplied as an argument.
@@ -110,7 +113,7 @@ throwSocketErrorCode :: String -> CInt -> IO a
 -- the IO action returns a result of @-1@.  Discards the result of the
 -- IO action after error handling.
 throwSocketErrorIfMinus1_
-    :: (Eq a, Num a)
+    :: (HasCallStack, Eq a, Num a)
     => String  -- ^ textual description of the location
     -> IO a    -- ^ the 'IO' operation to be executed
     -> IO ()
@@ -121,7 +124,7 @@ throwSocketErrorIfMinus1_
 -- the IO action returns a result of @-1@, but retries in case of an
 -- interrupted operation.
 throwSocketErrorIfMinus1Retry
-    :: (Eq a, Num a)
+    :: (HasCallStack, Eq a, Num a)
     => String  -- ^ textual description of the location
     -> IO a    -- ^ the 'IO' operation to be executed
     -> IO a
@@ -146,7 +149,7 @@ throwSocketErrorIfMinus1Retry_ loc m =
 -- interrupted operation.  Checks for operations that would block and
 -- executes an alternative action before retrying in that case.
 throwSocketErrorIfMinus1RetryMayBlock
-    :: (Eq a, Num a)
+    :: (HasCallStack, Eq a, Num a)
     => String  -- ^ textual description of the location
     -> IO b    -- ^ action to execute before retrying if an
                --   immediate retry would block
